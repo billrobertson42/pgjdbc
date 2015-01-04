@@ -7,11 +7,14 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
+import org.postgresql.core.BaseConnection;
 
 import org.postgresql.core.Encoding;
+import org.postgresql.core.Oid;
 
-public class HStoreConverter {
-   public static Map fromBytes(byte[] b, Encoding encoding) throws SQLException {
+public class HStoreConverter implements CompoundConverter<Map> {
+   
+   public Map fromBytes(byte[] b, Encoding encoding) throws SQLException {
        Map m = new HashMap();
        int pos = 0;
        int numElements = ByteConverter.int4(b, pos); pos+=4;
@@ -36,7 +39,7 @@ public class HStoreConverter {
        return m;
    }
    
-   public static byte[] toBytes(Map m, Encoding encoding) throws SQLException {
+   public byte[] toBytes(Map m, Encoding encoding) throws SQLException {
        ByteArrayOutputStream baos = new ByteArrayOutputStream(4 + 10 * m.size());
        byte[] lenBuf = new byte[4];
        try {
@@ -56,14 +59,13 @@ public class HStoreConverter {
                }
            }
        }
-       catch (IOException ioe)
-       {
+       catch (IOException ioe) {
            throw new PSQLException(GT.tr("Invalid character data was found.  This is most likely caused by stored data containing characters that are invalid for the character set the database was created in.  The most common example of this is storing 8bit data in a SQL_ASCII database."), PSQLState.DATA_ERROR, ioe);
        }
        return baos.toByteArray();
    }
 
-   public static String toString(Map map) {
+   public String toString(Map map) {
        if (map.isEmpty()) {
            return "";
        }
@@ -96,7 +98,7 @@ public class HStoreConverter {
       }
    }
 
-   public static Map fromString(String s) {
+   public Map fromString(String s) {
        Map m = new HashMap();
        int pos = 0;
        StringBuffer sb = new StringBuffer();
@@ -137,4 +139,17 @@ public class HStoreConverter {
        }
        return pos;
    }
+
+   public int getOid(BaseConnection connection) throws SQLException {
+        int oid = connection.getTypeInfo().getPGType("hstore");
+        if (oid == Oid.UNSPECIFIED) {
+            throw new PSQLException(GT.tr("No hstore extension installed."), PSQLState.INVALID_PARAMETER_TYPE);
+        }
+        return oid;
+   }
+
+    public boolean canConvert(Object value) {
+        return value instanceof Map;
+    }
+   
 }
