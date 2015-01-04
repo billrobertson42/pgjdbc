@@ -37,6 +37,8 @@ import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
 import org.postgresql.util.GT;
 import org.postgresql.PGResultSetMetaData;
+import org.postgresql.util.CompoundConverter;
+import org.postgresql.util.CompoundConverters;
 
 
 public abstract class AbstractJdbc2ResultSet implements BaseResultSet, org.postgresql.PGRefCursorResultSet
@@ -217,11 +219,13 @@ public abstract class AbstractJdbc2ResultSet implements BaseResultSet, org.postg
                 ((AbstractJdbc2ResultSet)rs).setRefCursor(cursorName);
                 return rs;
             }
-            if ("hstore".equals(type)) {
+            
+            CompoundConverter converter = CompoundConverters.get(type);
+            if (converter != null) {
                 if (isBinary(columnIndex)) {
-                    return HStoreConverter.fromBytes(this_row[columnIndex - 1], connection.getEncoding());
+                    return converter.fromBytes(this_row[columnIndex - 1], connection.getEncoding());
                 }
-                return HStoreConverter.fromString(getString(columnIndex));
+                return converter.fromString(getString(columnIndex));
             }
 
             // Caller determines what to do (JDBC3 overrides in this case)
@@ -1968,8 +1972,9 @@ public abstract class AbstractJdbc2ResultSet implements BaseResultSet, org.postg
             if (obj instanceof java.util.Date) {
               return connection.getTimestampUtils().timeToString((java.util.Date) obj);
             }
-            if ("hstore".equals(getPGType(columnIndex))) {
-                return HStoreConverter.toString((Map) obj);
+            CompoundConverter converter = CompoundConverters.get(getPGType(columnIndex));
+            if (converter != null) {
+                return converter.toString((Map) obj);
             }
             return trimString(columnIndex, obj.toString());
         }

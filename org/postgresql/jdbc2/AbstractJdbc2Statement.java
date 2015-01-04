@@ -26,6 +26,8 @@ import org.postgresql.largeobject.*;
 import org.postgresql.core.*;
 import org.postgresql.core.types.*;
 import org.postgresql.util.ByteConverter;
+import org.postgresql.util.CompoundConverter;
+import org.postgresql.util.CompoundConverters;
 import org.postgresql.util.HStoreConverter;
 import org.postgresql.util.PGBinaryObject;
 import org.postgresql.util.PSQLException;
@@ -1712,18 +1714,33 @@ public abstract class AbstractJdbc2Statement implements BaseStatement
         }
     }
     
-    private void setMap(int parameterIndex, Map x) throws SQLException {
-        int oid = connection.getTypeInfo().getPGType("hstore");
-        if (oid == Oid.UNSPECIFIED)
-            throw new PSQLException(GT.tr("No hstore extension installed."), PSQLState.INVALID_PARAMETER_TYPE);
-        if (connection.binaryTransferSend(oid)) {
-            byte[] data = HStoreConverter.toBytes(x, connection.getEncoding());
-            bindBytes(parameterIndex, data, oid);
-        } else {
-            setString(parameterIndex, HStoreConverter.toString(x), oid);
+    private CompoundConverter getCompoundConverter(int paramIndex, Object value) throws SQLException {
+        int[] typeOIDs = preparedParameters == null ? null : preparedParameters.getTypeOIDs();
+        if (preparedParameters == null) {
+            return CompoundConverters.get("hstore", value); // same behavior as before
+        }
+        else {
+            int useParamIndex = paramIndex - 1;
+            if (typeOIDs != null && typeOIDs.length > useParamIndex) {                
+                int indexOid = typeOIDs[useParamIndex];
+                String pgTypeName = connection.getTypeInfo().getPGType(indexOid);
+                return CompoundConverters.get(pgTypeName, value);
+            }
+            return null;
         }
     }
-
+    
+    private void setCompoundObject(CompoundConverter converter, int parameterIndex, Object x) throws SQLException {
+        int oid = converter.getOid(connection);
+        if(connection.binaryTransferSend(oid)) {
+            byte[] data = converter.toBytes(x, connection.getEncoding());
+            bindBytes(parameterIndex, data, oid);
+        }
+        else {
+            setString(parameterIndex, converter.toString(x), oid);
+        }
+    }
+    
     /*
      * Set the value of a parameter using an object; use the java.lang
      * equivalent objects for integral values.
@@ -1887,7 +1904,7 @@ public abstract class AbstractJdbc2Statement implements BaseStatement
      */
     public void setObject(int parameterIndex, Object x) throws SQLException
     {
-        checkClosed();
+        checkClosed();        
         if (x == null)
             setNull(parameterIndex, Types.OTHER);
         else if (x instanceof String)
@@ -1926,12 +1943,14 @@ public abstract class AbstractJdbc2Statement implements BaseStatement
             setPGobject(parameterIndex, (PGobject)x);
         else if (x instanceof Character)
             setString(parameterIndex, ((Character)x).toString());
-        else if (x instanceof Map)
-            setMap(parameterIndex, (Map)x);
         else
         {
-            // Can't infer a type.
-            throw new PSQLException(GT.tr("Can''t infer the SQL type to use for an instance of {0}. Use setObject() with an explicit Types value to specify the type to use.", x.getClass().getName()), PSQLState.INVALID_PARAMETER_TYPE);
+            CompoundConverter converter = getCompoundConverter(parameterIndex, x);
+            if(converter != null) 
+                setCompoundObject(converter, parameterIndex, x);
+            else 
+                // Can't infer a type.
+                throw new PSQLException(GT.tr("Can''t infer the SQL type to use for an instance of {0}. Use setObject() with an explicit Types value to specify the type to use.", x.getClass().getName()), PSQLState.INVALID_PARAMETER_TYPE);
         }
     }
 
